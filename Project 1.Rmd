@@ -1,0 +1,127 @@
+---
+title: "Project 1 - Chess Results"
+author: "Georgia Galanopoulos"
+date: "February 26, 2017"
+output: html_document
+---
+**Project Goal:
+The data of a chess tournament is imported in a text format and manipulated to show the players' name, the state they are from, their total number of points, in addition to their pre-rating and the average pre-rating of their opponents.The data is then written into a .csv file.**
+
+The data is imported from GitHub and the required libraries are loaded. In addition, the columns are formatted before working with the data.
+```{r}
+library(stringr)
+library(knitr)
+library(ggplot2)
+
+# import data from github
+chess = read.table("https://raw.githubusercontent.com/Galanopoulog/DATA607-Project-1/master/chess.txt",
+           header = F,
+           sep = "|",
+           skip = 3,
+           fill = T,
+           blank.lines.skip = T,
+           stringsAsFactors = F)
+
+# Because the V11 column is not required in addition to having only NA values, we remove it.
+chess = chess[1:10]
+
+# Format column 1 by removing the repeating "---"
+chess$V1 = str_replace_all(chess$V1, "\\-", "")
+
+head(data.frame(chess))
+```
+
+To make the data more compact, we remove any rows with NA values or only spaces.
+```{r}
+# Remove rows with NA and spaces
+chess = subset(chess, chess[,1:10]  != "")
+chess = chess[apply(chess,1,function(chess)any(!is.na(chess))),]
+head(chess)
+```
+
+Since two rows are dedicated to one player, the goal is to make one row include all the information for one player. To do that, we will split the data into two data sets using their index as an odd or even row and then combine them back into one data set. Some columns will be dropped because they are not necessary to the overall project.
+```{r}
+# Splitting the dataframe into two and then combining them again
+odds = seq(1, nrow(chess), by=2)
+chessodds = chess[odds,]
+colnames(chessodds) = c("Num", "Name", "Points", "Round_1", "Round_2", "Round_3", "Round_4", "Round_5", "Round_6", "Round_7")
+
+evens = seq(2, nrow(chess), by=2)
+chessevens = chess[evens, 1:3]
+colnames(chessevens) = c("State", "ID/Pre_Post", "Total")
+
+kable(head(chessodds))
+kable(head(chessevens))
+```
+
+
+One step before combining the data, the data in the column titled "ID/Pre_Post" will be broken into three parts: ID, Pre and Post. These three columns will describe the players' ID number, their Pre-Rating and their Post-Rating.
+```{r}
+## Breaking up ID/Pre_Post into ID, Pre and Post
+# Remove spacing for easier manipulation
+chessevens$'ID/Pre_Post' = gsub("[[:space:]]", "", chessevens$'ID/Pre_Post')
+
+# ID
+ID = substr(chessevens$'ID/Pre_Post', 0, 8)
+
+# Pre values
+Pre = as.numeric(str_extract(substr(chessevens$'ID/Pre_Post', 12, 30), "\\d+"))
+
+# Post values
+Post = str_extract(substr(chessevens$'ID/Pre_Post', 12, 30), "(>)\\d+")
+Post = as.numeric(gsub(">", "", Post))
+```
+
+Finally, we combine the two data sets and rearrange the columns for an easier read.
+```{r}
+# Combine
+merged_chess = cbind(chessodds, chessevens, ID, Post, Pre)
+
+# Rearrange columns
+merged_chess = merged_chess[ ,c("Num", "ID", "Name", "State","Points", "Pre", "Post", "Round_1", "Round_2", "Round_3", "Round_4", "Round_5", "Round_6", "Round_7")]
+kable(head(merged_chess))
+```
+
+In order to generate the Average Pre-Rating score of a player's opponents, we will create an empty array that we will fill in with a for loop. From each round, we will extract each player's opponent, draw that opponent's pre-rating score and then find the average of all oppents.
+```{r}
+rank = array(dim=length(merged_chess$Num))
+for (i in 1:length(merged_chess$Num)){
+  pres = na.omit(as.numeric(str_extract_all(merged_chess[i,8:14],"\\d+")))
+  rank[i] = round(mean(merged_chess[pres, 6]))
+}
+merged_chess$Ranks = rank
+```
+
+Once again, we will rearrange the columns and, finally, write the data out into a csv file.
+```{r}
+# Rearrange columns again
+merged_chess = merged_chess[ ,c("Num", "ID", "Name", "State","Points", "Pre", "Post", "Ranks", "Round_1", "Round_2", "Round_3", "Round_4", "Round_5", "Round_6", "Round_7")]
+kable(head(merged_chess))
+
+# Remove "#" in the line below to write out csv file that will be titled "ChessTournament"
+#write.csv(merged_chess, "ChessTournament.csv")
+```
+
+**Trying to visually identify if players' score increases if they face off opponents who have on average higher scores than them.**
+
+To do that, we take the difference between Post scores and Pre scores and if the difference is positive, then the player has increased their scoring.
+
+We will also take the difference between Pre scores and "Ranks" scores to identify if the players faced against opponents who overall had higher scores than them and if the difference is positive, then the player played against more skilled opponents on average.
+
+**To simplify:**
+
+Orange scores above the zero line = player increased their scores
+
+Green scores above the zero line = player faced on average opponents with higher scores
+
+
+```{r}
+PlotPostPre = data.frame(x= merged_chess$Num, y= (Post-Pre))
+PlotRanksPost = data.frame(x= merged_chess$Num, y= (merged_chess$Ranks-Post))
+ZeroLine = data.frame(x= merged_chess$Num, y= 0)
+
+ggplot(PlotPostPre,aes(x,y))+ geom_line(aes(color= "Post-Pre",group= 1))+
+  geom_line(data= PlotRanksPost, aes(color="Ranks-Pre",group= 1))+
+  geom_line(data= ZeroLine, aes(color="Zero Line",group= 1))+
+  labs(color="Legend")
+```
